@@ -1,0 +1,12 @@
+# Alles wat leesbaar is hoort hier niet: bronmap, sleutel, QR-code.
+node_modules/
+.DS_Store
+*.log
+geheim.json
+secret.json
+bron/
+src/
+privé/
+*.pdf
+qr*.png
+qr*.svg

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="nl" data-state="boot">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src blob: data:; font-src 'self'; media-src blob:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+  <title>Voor jou</title>
+  <link rel="preload" href="assets/figtree.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/shell.css">
+  <script type="module" src="assets/app.js"></script>
+</head>
+<body>
+
+  <main id="gate" class="gate">
+    <div class="gate__body">
+      <div class="gate__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="10.5" width="14" height="10" rx="2.5"/>
+          <path class="gate__shackle" d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>
+        </svg>
+      </div>
+
+      <h1 class="gate__title" data-when="locked">Ben jij het?</h1>
+      <p class="gate__lead" data-when="locked">Typ het wachtwoord dat onder de QR-code staat.</p>
+
+      <h1 class="gate__title" data-when="nokey">Deze pagina is op slot.</h1>
+      <p class="gate__lead" data-when="nokey">Scan de QR-code op je kaart om verder te gaan.</p>
+
+      <form id="gate-form" class="gate__form" autocomplete="off" novalidate data-when="locked">
+        <label class="field" for="gate-input">
+          <span class="field__label">Wachtwoord</span>
+          <input id="gate-input" class="field__input" type="text" inputmode="text"
+                 autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
+                 enterkeyhint="go" aria-describedby="gate-note">
+        </label>
+        <button id="gate-button" class="button" type="submit">
+          <span class="button__label">Openen</span>
+        </button>
+        <p id="gate-note" class="gate__note" role="status" aria-live="polite"></p>
+      </form>
+
+      <noscript>
+        <p class="gate__lead">Zet JavaScript aan om deze pagina te openen.</p>
+      </noscript>
+    </div>
+
+    <p class="gate__foot">Versleuteld. Alleen te openen met de kaart.</p>
+  </main>
+
+  <div id="stage" class="stage" hidden></div>
+
+</body>
+</html>
