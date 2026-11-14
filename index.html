@@ -17,7 +17,16 @@
 </head>
 <body>
 
+  <button id="sound" class="sound" type="button" aria-pressed="true" aria-label="Geluid aan of uit" hidden>
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5Z"/>
+      <path class="sound__on" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.8 7.8 0 0 1 0 11"/>
+      <path class="sound__off" d="m15.5 9.5 5 5m0-5-5 5"/>
+    </svg>
+  </button>
+
   <main id="gate" class="gate">
+    <div id="gate-air" class="gate__air" aria-hidden="true"></div>
     <div class="gate__body">
       <div class="gate__mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">

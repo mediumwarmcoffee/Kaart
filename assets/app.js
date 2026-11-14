@@ -2,6 +2,8 @@
 // en zet de inhoud op de pagina. Er gaat niets terug naar een server.
 
 import { open, unpack, fromBase64Url, VaultError } from './vault.js';
+import { createSound } from './sound.js';
+import { drift, burst } from './festive.js';
 
 const PAYLOAD = 'data/card.bin';
 
@@ -13,6 +15,12 @@ const button = document.getElementById('gate-button');
 const label = button.querySelector('.button__label');
 const note = document.getElementById('gate-note');
 const stage = document.getElementById('stage');
+const air = document.getElementById('gate-air');
+const soundButton = document.getElementById('sound');
+
+// De inhoud kan de muziek bijsturen via window.kaart.sound.
+const sound = createSound();
+window.kaart = { sound };
 
 const TEXT = {
   open: 'Openen',
@@ -143,6 +151,7 @@ function leaveGate() {
   input.blur();
   input.value = '';
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  burst(air, button);
   window.setTimeout(() => {
     window.scrollTo(0, 0);
     gate.classList.add('is-leaving');
@@ -150,7 +159,7 @@ function leaveGate() {
       gate.remove();
       document.dispatchEvent(new CustomEvent('card:open'));
     }, reduce ? 0 : 620);
-  }, reduce ? 0 : 420);
+  }, reduce ? 0 : 900);
 }
 
 let working = false;
@@ -205,6 +214,18 @@ if (!secret) {
 } else {
   html.dataset.state = 'locked';
   startDownload();
+  drift(air);
+
+  if (sound.state().available) {
+    soundButton.hidden = false;
+    sound.onchange((s) => soundButton.setAttribute('aria-pressed', String(!s.muted)));
+    soundButton.addEventListener('click', () => sound.toggle());
+    // Geluid mag pas na de eerste aanraking beginnen.
+    for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
+      document.addEventListener(type, () => sound.start(), { passive: true });
+    }
+  }
+
   form.addEventListener('submit', submit);
   input.addEventListener('input', () => {
     gate.classList.remove('is-wrong');

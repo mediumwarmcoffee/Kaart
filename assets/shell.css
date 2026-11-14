@@ -57,6 +57,80 @@ body {
   transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
 }
 
+.gate { position: relative; overflow: hidden; }
+
+/* ---------- snippers ---------- */
+
+.gate__air {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.gate__body, .gate__foot { position: relative; }
+
+.bit {
+  display: block;
+  width: 9px;
+  height: 9px;
+  background: var(--c);
+  border-radius: 50%;
+}
+
+.bit--chip { width: 10px; height: 7px; border-radius: 2px; }
+.bit--strip { width: 4px; height: 13px; border-radius: 2px; }
+
+.bit-fall {
+  position: absolute;
+  left: var(--x);
+  top: -24px;
+  opacity: 0.85;
+  animation: bit-fall var(--t) linear var(--d) infinite;
+}
+
+.bit-fall .bit { animation: bit-sway var(--st) ease-in-out infinite alternate; }
+
+@keyframes bit-fall {
+  to { transform: translateY(calc(100vh + 48px)); }
+}
+
+@keyframes bit-sway {
+  from { transform: translateX(calc(var(--sway) * -1)) rotate(calc(var(--r) * -1)); }
+  to { transform: translateX(var(--sway)) rotate(var(--r)); }
+}
+
+.bit--burst { position: absolute; z-index: 2; }
+
+html[data-state="nokey"] .gate__air, html[data-state="boot"] .gate__air { display: none; }
+
+/* ---------- geluidsknop ---------- */
+
+.sound {
+  position: fixed;
+  z-index: 200;
+  top: calc(14px + env(safe-area-inset-top));
+  right: 14px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.sound:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.sound .sound__off { display: none; }
+.sound[aria-pressed="false"] .sound__on { display: none; }
+.sound[aria-pressed="false"] .sound__off { display: inline; }
+.sound[aria-pressed="false"] { color: var(--ink-soft); }
+
 .gate__body {
   align-self: center;
   justify-self: center;
@@ -231,6 +305,9 @@ html[data-state="open"] .gate__shackle { transform: rotate(38deg); }
 .stage { min-height: 100vh; min-height: 100dvh; }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Stilstaande snippers: wel feestelijk, geen beweging. */
+  .bit-fall { top: var(--y); animation: none; }
+  .bit-fall .bit { animation: none; transform: rotate(var(--r)); }
   .gate, .gate__shackle, .button, .button::before { transition: none; }
   .gate.is-wrong .field { animation: none; }
   .gate.is-leaving { transform: none; }
