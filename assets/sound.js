@@ -1,33 +1,36 @@
 // Achtergrondmuziek, volledig in de browser opgewekt (Web Audio), zonder bestanden.
-// Een licht, ritmisch deuntje in majeur: getokkelde akkoorden, een bas, een
-// melodie en zacht slagwerk. Een "scène" bepaalt tempo, toonhoogte en welke
+// Een ontspannen groove in majeur: zachte elektrische piano, bas, een spaarzame
+// melodie en licht slagwerk. Een "scène" bepaalt tempo, toonhoogte en welke
 // partijen meedoen; zo kan de inhoud de muziek laten meebewegen met het verhaal.
 
 const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
 
-// Het deuntje: acht maten van acht tellen (achtste noten).
-// Getallen zijn halve tonen boven de grondtoon; null is een rust.
+// Acht maten van acht tellen (achtste noten). Getallen zijn halve tonen boven
+// de grondtoon; null is een rust.
 const ROOT = 62;
-const CHORDS = [
-  [0, 4, 7], [5, 9, 12], [0, 4, 7], [7, 11, 14],
-  [0, 4, 7], [5, 9, 12], [7, 11, 14], [0, 4, 7],
-];
+// [bastoon, akkoordtonen]: rijke, open akkoorden (6/9, groot septiem, sus) in
+// plaats van kale drieklanken.
+const SIX_NINE = [0, [4, 7, 9, 14]];
+const MAJ_SEVEN = [5, [9, 12, 14, 16]];
+const SUS = [7, [9, 12, 14, 17]];
+const CHORDS = [SIX_NINE, SIX_NINE, MAJ_SEVEN, MAJ_SEVEN, SIX_NINE, SUS, MAJ_SEVEN, SUS];
 const _ = null;
+// Korte frases met lucht ertussen, net naast de tel.
 const LEAD = [
-  12, _, 16, _, 19, _, 16, _,
-  21, _, 19, _, 17, _, 19, _,
-  16, _, 12, _, 16, _, 19, _,
-  14, _, 16, _, 14, _, 11, 14,
-  12, _, 16, _, 19, _, 24, _,
-  21, _, 24, _, 21, _, 19, _,
-  19, _, 16, _, 14, _, 11, 14,
-  12, _, _, _, 12, 14, 16, 19,
+  _, 16, _, 19, _, _, 21, _,
+  19, _, _, _, _, _, _, _,
+  _, 21, _, 24, _, _, 26, _,
+  24, _, _, 21, _, 19, _, _,
+  _, 16, _, 19, _, _, 21, _,
+  24, _, _, 21, _, _, 19, _,
+  _, 16, _, 14, _, _, 16, _,
+  14, _, _, _, _, 12, 14, _,
 ];
 const STEPS = 8;
 
-// De scène van het slotscherm: rustig wachten, de melodie alleen in losse tonen.
+// De scène van het slotscherm: alleen piano en bas, de melodie om en om.
 export const LOBBY = {
-  bpm: 92,
+  bpm: 84,
   transpose: 0,
   sparse: true,
   levels: { stabs: 0.5, bass: 0.55, lead: 0.4, bell: 0, perc: 0 },
@@ -110,10 +113,12 @@ export function createSound() {
     }
   }
 
-  // Marimba-achtig: rond en kort, met een tikje bovenop.
-  const MALLET = [['sine', 1, 0.5, 0.55], ['sine', 4, 0.12, 0.12], ['triangle', 2, 0.08, 0.25]];
-  const STAB = [['triangle', 1, 0.3, 0.22], ['sine', 2, 0.08, 0.12]];
-  const BASS = [['sine', 1, 0.6, 0.4], ['triangle', 2, 0.22, 0.3]];
+  // Elektrische piano: rond, met een lange uitklank en een zacht tikje.
+  const KEYS = [['sine', 1, 0.28, 1.5], ['sine', 2, 0.07, 0.8], ['sine', 6, 0.012, 0.1]];
+  const KEYS_SHORT = [['sine', 1, 0.2, 0.6], ['sine', 2, 0.05, 0.3]];
+  const BASS = [['sine', 1, 0.55, 0.55], ['triangle', 2, 0.16, 0.4]];
+  // Melodie: vibrafoon-achtig, zingt even door.
+  const VIBES = [['sine', 1, 0.42, 1.2], ['sine', 4, 0.06, 0.25], ['triangle', 1, 0.07, 0.5]];
   // Klokje met alleen heldere boventonen (octaaf en kwint), zonder de kleine terts
   // die echte klokken somber maakt.
   const BELL = [['sine', 1, 0.42, 1.6], ['sine', 2, 0.2, 1.0], ['sine', 3, 0.1, 0.6], ['sine', 4, 0.05, 0.35]];
@@ -145,27 +150,44 @@ export function createSound() {
     osc.stop(when + 0.2);
   }
 
+  // Een droog tikje op tel 2 en 4.
+  function rim(when, level) {
+    const src = ctx.createBufferSource();
+    src.buffer = noise;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1900;
+    bp.Q.value = 3;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, when);
+    g.gain.linearRampToValueAtTime(0.5 * level, when + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.05);
+    src.connect(bp).connect(g).connect(bus.perc);
+    src.start(when, Math.random() * 0.8, 0.07);
+  }
+
   function playStep(i, when) {
     const bar = Math.floor(i / STEPS) % CHORDS.length;
     const beat = i % STEPS;
     const base = ROOT + (scene.transpose || 0);
-    const chord = CHORDS[bar];
+    const [root, chord] = CHORDS[bar];
 
-    // bas: grondtoon op 1 en 3, een aanloopje op de laatste tel
-    if (beat === 0 || beat === 4) tone(base + chord[0] - 12, when, 1, BASS, bus.bass);
-    if (beat === 7) tone(base + chord[2] - 12, when, 0.6, BASS, bus.bass);
-
-    // akkoorden op de tussentellen: dat geeft de huppel
-    if (beat % 2 === 1) for (const n of chord) tone(base + n, when, 0.8, STAB, bus.stabs);
+    // Piano en bas volgen hetzelfde 3-3-2-patroon: dat geeft de groove.
+    if (beat === 0) for (const n of chord) tone(base + n, when, 1, KEYS, bus.stabs);
+    if (beat === 3 || beat === 6) for (const n of chord) tone(base + n, when, 0.8, KEYS_SHORT, bus.stabs);
+    if (beat === 0) tone(base + root - 12, when, 1, BASS, bus.bass);
+    if (beat === 3) tone(base + root - 5, when, 0.7, BASS, bus.bass);
+    if (beat === 6) tone(base + root - 12, when, 0.8, BASS, bus.bass);
 
     const note = LEAD[i % LEAD.length];
-    if (note !== null && (!scene.sparse || beat === 0 || beat === 4)) {
-      tone(base + note, when, beat % 4 === 0 ? 1 : 0.8, MALLET, bus.lead);
-      tone(base + note + 12, when, beat % 4 === 0 ? 1 : 0.75, BELL, bus.bell);
+    if (note !== null && (!scene.sparse || Math.floor(bar / 2) % 2 === 0)) {
+      tone(base + note, when, 0.9, VIBES, bus.lead);
+      tone(base + note + 12, when, 0.9, BELL, bus.bell);
     }
 
-    if (beat === 0 || beat === 4) thump(when, 1);
-    shaker(when, beat % 2 === 1 ? 1 : 0.45);
+    if (beat === 0 || beat === 5) thump(when, beat === 0 ? 1 : 0.7);
+    if (beat === 2 || beat === 6) rim(when, 1);
+    shaker(when, beat % 2 === 1 ? 0.8 : 0.4);
   }
 
   function tick() {
