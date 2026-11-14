@@ -152,6 +152,7 @@ function leaveGate() {
   input.value = '';
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   burst(air, button);
+  sound.accent([74, 78, 81, 86, 90], 0.1);
   window.setTimeout(() => {
     window.scrollTo(0, 0);
     gate.classList.add('is-leaving');

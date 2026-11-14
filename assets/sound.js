@@ -1,16 +1,18 @@
 // Zachte achtergrondmuziek, volledig in de browser opgewekt (Web Audio).
 // Geen geluidsbestanden: een paar langzame akkoorden, wat galm en af en toe
-// een klokje. Een "scène" beschrijft hoe het klinkt; wisselen gaat geleidelijk.
+// een klokje. Een "scène" beschrijft hoe het klinkt: akkoorden, helderheid,
+// klokjes en eventueel een zacht doorlopend loopje.
 
 const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
 
 // De scène van het slotscherm. Andere scènes komen uit de inhoud zelf.
 export const LOBBY = {
-  chords: [[50, 57, 64, 66], [47, 54, 62, 64], [43, 50, 59, 64], [45, 52, 61, 64]],
-  chordSeconds: 14,
+  // alleen grote akkoorden: licht en open
+  chords: [[50, 57, 64, 66], [55, 62, 66, 69], [57, 61, 64, 69], [54, 57, 62, 66]],
+  chordSeconds: 10,
   pad: 0.5,
-  cutoff: 900,
-  chime: { level: 0.1, every: 11, notes: [78, 81, 83, 86], phrase: 1 },
+  cutoff: 1150,
+  chime: { level: 0.14, every: 8, notes: [78, 81, 83, 86], phrase: 2 },
 };
 
 const KEY = 'kaart:geluid';
@@ -19,13 +21,15 @@ const VOICES = 4;
 export function createSound() {
   const AC = window.AudioContext || window.webkitAudioContext;
   let ctx = null;
-  let master, padBus, padFilter, chimeBus, verb, out;
+  let master, padBus, padFilter, chimeBus, accentBus, arpBus, verb, out;
   let voices = [];
   let scene = LOBBY;
   let chordIndex = 0;
   let nextVoiceAt = 0;
   let voiceTurn = 0;
   let nextChimeAt = 0;
+  let nextArpAt = 0;
+  let arpStep = 0;
   let timer = null;
   let muted = false;
   try { muted = window.localStorage.getItem(KEY) === '0'; } catch { /* privémodus */ }
@@ -84,6 +88,21 @@ export function createSound() {
     chimeBus.connect(chimeDry).connect(master);
     chimeBus.connect(verb);
 
+    // Accenten (zoals bij het openen) hebben een eigen, vast volume.
+    accentBus = ctx.createGain();
+    accentBus.gain.value = 0.34;
+    const accentDry = ctx.createGain();
+    accentDry.gain.value = 0.4;
+    accentBus.connect(accentDry).connect(master);
+    accentBus.connect(verb);
+
+    arpBus = ctx.createGain();
+    arpBus.gain.value = scene.arp ? scene.arp.level : 0;
+    const arpDry = ctx.createGain();
+    arpDry.gain.value = 0.7;
+    arpBus.connect(arpDry).connect(master);
+    arpBus.connect(verb);
+
     // Het filter ademt heel langzaam mee.
     const lfo = ctx.createOscillator();
     lfo.frequency.value = 0.045;
@@ -123,18 +142,36 @@ export function createSound() {
   }
 
   // Eén stem tegelijk schuift naar het volgende akkoord, zodat het nooit stilvalt.
-  function moveVoice(i, when) {
+  // Met quick klinkt het nieuwe akkoord vrijwel meteen (start en scènewissel).
+  function moveVoice(i, when, quick) {
     const chord = scene.chords[chordIndex % scene.chords.length];
     const freq = midi(chord[i % chord.length]);
     const v = voices[i];
-    const fade = Math.min(4, scene.chordSeconds / 4);
+    const fade = quick ? 0.25 : Math.min(3, scene.chordSeconds / 4);
     v.gain.gain.cancelScheduledValues(when);
     v.gain.gain.setTargetAtTime(0, when, fade / 4);
     for (const { osc, ratio } of v.oscs) osc.frequency.setValueAtTime(freq * ratio, when + fade);
     v.gain.gain.setTargetAtTime(0.15, when + fade, fade / 3);
   }
 
-  function chime(note, when, velocity) {
+  // Een kort getokkeld toontje voor het loopje.
+  function pluck(note, when, velocity) {
+    const f = midi(note);
+    for (const [type, ratio, amp] of [['triangle', 1, 1], ['sine', 2, 0.3]]) {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.value = f * ratio;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, when);
+      gain.gain.linearRampToValueAtTime(amp * velocity * 0.5, when + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + 1.1);
+      osc.connect(gain).connect(arpBus);
+      osc.start(when);
+      osc.stop(when + 1.2);
+    }
+  }
+
+  function chime(note, when, velocity, bus = chimeBus) {
     const f = midi(note);
     // Boventonen van een klokje: grondtoon, kleine terts, kwint, octaaf.
     const partials = [[0.5, 0.45, 5], [1, 1, 4.2], [1.2, 0.28, 2.4], [1.5, 0.18, 1.8], [2, 0.4, 2.6], [3, 0.1, 1.2]];
@@ -146,7 +183,7 @@ export function createSound() {
       gain.gain.setValueAtTime(0, when);
       gain.gain.linearRampToValueAtTime(amp * velocity * 0.5, when + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0001, when + decay);
-      osc.connect(gain).connect(chimeBus);
+      osc.connect(gain).connect(bus);
       osc.start(when);
       osc.stop(when + decay + 0.1);
     }
@@ -161,6 +198,19 @@ export function createSound() {
       moveVoice(voiceTurn % VOICES, Math.max(now, nextVoiceAt));
       voiceTurn++;
       nextVoiceAt = Math.max(now, nextVoiceAt) + scene.chordSeconds / VOICES;
+    }
+
+    const a = scene.arp;
+    if (a && a.level > 0) {
+      if (nextArpAt < now) nextArpAt = now + 0.05;
+      const chord = scene.chords[chordIndex % scene.chords.length];
+      const order = [0, 1, 2, 3, 2, 1];
+      while (nextArpAt < now + 0.5) {
+        const note = chord[order[arpStep % order.length] % chord.length] + 12;
+        pluck(note, nextArpAt, arpStep % order.length === 0 ? 1 : 0.7);
+        arpStep++;
+        nextArpAt += a.step;
+      }
     }
 
     const c = scene.chime;
@@ -186,7 +236,16 @@ export function createSound() {
     padBus.gain.setTargetAtTime(scene.pad, now, tc);
     padFilter.frequency.setTargetAtTime(scene.cutoff, now, tc);
     chimeBus.gain.setTargetAtTime(scene.chime ? scene.chime.level : 0, now, tc);
-    nextVoiceAt = Math.min(nextVoiceAt, now + 0.2);
+    arpBus.gain.setTargetAtTime(scene.arp ? scene.arp.level : 0, now, tc);
+    if (seconds <= 3) {
+      // Snelle wissel: alle stemmen meteen naar het nieuwe akkoord, zodat je de omslag hoort.
+      chordIndex = 0;
+      for (let i = 0; i < VOICES; i++) moveVoice(i, now + 0.05 + i * 0.12, true);
+      voiceTurn = VOICES;
+      nextVoiceAt = now + scene.chordSeconds;
+    } else {
+      nextVoiceAt = Math.min(nextVoiceAt, now + 0.2);
+    }
     if (scene.chime) nextChimeAt = Math.min(nextChimeAt, now + 2 + Math.random() * 3);
   }
 
@@ -210,11 +269,12 @@ export function createSound() {
         blip.start(0);
       } catch { /* niet erg */ }
       const now = ctx.currentTime;
-      for (let i = 0; i < VOICES; i++) moveVoice(i, now + i * 0.7);
+      // Meteen hoorbaar: alle stemmen tegelijk erin en een eerste klokje.
+      for (let i = 0; i < VOICES; i++) moveVoice(i, now + i * 0.08, true);
       voiceTurn = VOICES;
       nextVoiceAt = now + scene.chordSeconds;
-      nextChimeAt = now + 5;
-      setLevel(4);
+      nextChimeAt = now + 1.2;
+      setLevel(0.9);
       timer = window.setInterval(tick, 250);
     }
     if (ctx.state !== 'running') ctx.resume().then(emit, () => {});
@@ -225,6 +285,16 @@ export function createSound() {
     if (!next || !Array.isArray(next.chords) || !next.chords.length) return;
     scene = { ...LOBBY, ...next };
     applyScene(seconds);
+  }
+
+  // Een kort oplopend rijtje klokjes, los van de scène.
+  function accent(notes, gap = 0.12) {
+    if (!ctx || muted || ctx.state !== 'running' || !Array.isArray(notes)) return;
+    let at = ctx.currentTime + 0.03;
+    notes.slice(0, 12).forEach((note, i) => {
+      chime(note, at, 0.75 + 0.25 * (i / notes.length), accentBus);
+      at += gap;
+    });
   }
 
   function setMuted(value) {
@@ -245,6 +315,7 @@ export function createSound() {
   return {
     start,
     scene: setScene,
+    accent,
     mute: setMuted,
     toggle: () => setMuted(!muted),
     state,
