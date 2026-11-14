@@ -1,35 +1,49 @@
-// Zachte achtergrondmuziek, volledig in de browser opgewekt (Web Audio).
-// Geen geluidsbestanden: een paar langzame akkoorden, wat galm en af en toe
-// een klokje. Een "scène" beschrijft hoe het klinkt: akkoorden, helderheid,
-// klokjes en eventueel een zacht doorlopend loopje.
+// Achtergrondmuziek, volledig in de browser opgewekt (Web Audio), zonder bestanden.
+// Een licht, ritmisch deuntje in majeur: getokkelde akkoorden, een bas, een
+// melodie en zacht slagwerk. Een "scène" bepaalt tempo, toonhoogte en welke
+// partijen meedoen; zo kan de inhoud de muziek laten meebewegen met het verhaal.
 
 const midi = (n) => 440 * Math.pow(2, (n - 69) / 12);
 
-// De scène van het slotscherm. Andere scènes komen uit de inhoud zelf.
+// Het deuntje: acht maten van acht tellen (achtste noten).
+// Getallen zijn halve tonen boven de grondtoon; null is een rust.
+const ROOT = 62;
+const CHORDS = [
+  [0, 4, 7], [5, 9, 12], [0, 4, 7], [7, 11, 14],
+  [0, 4, 7], [5, 9, 12], [7, 11, 14], [0, 4, 7],
+];
+const _ = null;
+const LEAD = [
+  12, _, 16, _, 19, _, 16, _,
+  21, _, 19, _, 17, _, 19, _,
+  16, _, 12, _, 16, _, 19, _,
+  14, _, 16, _, 14, _, 11, 14,
+  12, _, 16, _, 19, _, 24, _,
+  21, _, 24, _, 21, _, 19, _,
+  19, _, 16, _, 14, _, 11, 14,
+  12, _, _, _, 12, 14, 16, 19,
+];
+const STEPS = 8;
+
+// De scène van het slotscherm: rustig wachten, de melodie alleen in losse tonen.
 export const LOBBY = {
-  // alleen grote akkoorden: licht en open
-  chords: [[50, 57, 64, 66], [55, 62, 66, 69], [57, 61, 64, 69], [54, 57, 62, 66]],
-  chordSeconds: 10,
-  pad: 0.5,
-  cutoff: 1150,
-  chime: { level: 0.14, every: 8, notes: [78, 81, 83, 86], phrase: 2 },
+  bpm: 92,
+  transpose: 0,
+  sparse: true,
+  levels: { stabs: 0.5, bass: 0.55, lead: 0.4, bell: 0, perc: 0 },
 };
 
+const PARTS = ['stabs', 'bass', 'lead', 'bell', 'perc'];
 const KEY = 'kaart:geluid';
-const VOICES = 4;
 
 export function createSound() {
   const AC = window.AudioContext || window.webkitAudioContext;
   let ctx = null;
-  let master, padBus, padFilter, chimeBus, accentBus, arpBus, verb, out;
-  let voices = [];
+  let master, out, verb, noise;
+  const bus = {};
   let scene = LOBBY;
-  let chordIndex = 0;
-  let nextVoiceAt = 0;
-  let voiceTurn = 0;
-  let nextChimeAt = 0;
-  let nextArpAt = 0;
-  let arpStep = 0;
+  let step = 0;
+  let nextStepAt = 0;
   let timer = null;
   let muted = false;
   try { muted = window.localStorage.getItem(KEY) === '0'; } catch { /* privémodus */ }
@@ -38,26 +52,10 @@ export function createSound() {
   const state = () => ({ available: !!AC, muted, running: !!ctx && ctx.state === 'running' });
   const emit = () => listeners.forEach((fn) => fn(state()));
 
-  function impulse(seconds) {
-    const length = Math.floor(ctx.sampleRate * seconds);
-    const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const data = buffer.getChannelData(ch);
-      let smooth = 0;
-      for (let i = 0; i < length; i++) {
-        const t = i / length;
-        // ruis die uitsterft en onderweg doffer wordt
-        smooth += (Math.random() * 2 - 1 - smooth) * (0.55 - 0.45 * t);
-        data[i] = smooth * Math.pow(1 - t, 2.6);
-      }
-    }
-    return buffer;
-  }
-
   function build() {
     ctx = new AC();
     out = ctx.createDynamicsCompressor();
-    out.threshold.value = -16;
+    out.threshold.value = -14;
     out.ratio.value = 3;
     out.connect(ctx.destination);
 
@@ -65,193 +63,132 @@ export function createSound() {
     master.gain.value = 0;
     master.connect(out);
 
+    // Een beetje ruimte, bewust kort: veel galm maakt het zwaarmoedig.
+    const length = Math.floor(ctx.sampleRate * 1.4);
+    const impulse = ctx.createBuffer(2, length, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = impulse.getChannelData(ch);
+      for (let i = 0; i < length; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 3.2);
+    }
     verb = ctx.createConvolver();
-    verb.buffer = impulse(5);
+    verb.buffer = impulse;
     const wet = ctx.createGain();
-    wet.gain.value = 0.9;
+    wet.gain.value = 0.22;
     verb.connect(wet).connect(master);
 
-    padFilter = ctx.createBiquadFilter();
-    padFilter.type = 'lowpass';
-    padFilter.frequency.value = scene.cutoff;
-    padFilter.Q.value = 0.4;
-    padBus = ctx.createGain();
-    padBus.gain.value = scene.pad;
-    padFilter.connect(padBus);
-    padBus.connect(master);
-    padBus.connect(verb);
-
-    chimeBus = ctx.createGain();
-    chimeBus.gain.value = scene.chime ? scene.chime.level : 0;
-    const chimeDry = ctx.createGain();
-    chimeDry.gain.value = 0.35;
-    chimeBus.connect(chimeDry).connect(master);
-    chimeBus.connect(verb);
-
-    // Accenten (zoals bij het openen) hebben een eigen, vast volume.
-    accentBus = ctx.createGain();
-    accentBus.gain.value = 0.34;
-    const accentDry = ctx.createGain();
-    accentDry.gain.value = 0.4;
-    accentBus.connect(accentDry).connect(master);
-    accentBus.connect(verb);
-
-    arpBus = ctx.createGain();
-    arpBus.gain.value = scene.arp ? scene.arp.level : 0;
-    const arpDry = ctx.createGain();
-    arpDry.gain.value = 0.7;
-    arpBus.connect(arpDry).connect(master);
-    arpBus.connect(verb);
-
-    // Het filter ademt heel langzaam mee.
-    const lfo = ctx.createOscillator();
-    lfo.frequency.value = 0.045;
-    const depth = ctx.createGain();
-    depth.gain.value = 140;
-    lfo.connect(depth).connect(padFilter.frequency);
-    lfo.start();
-
-    for (let i = 0; i < VOICES; i++) {
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-      if (pan) {
-        pan.pan.value = [-0.5, 0.35, -0.15, 0.55][i];
-        gain.connect(pan).connect(padFilter);
-      } else {
-        gain.connect(padFilter);
-      }
-      // Drie lagen per stem: de toon zelf, een octaaf erboven (anders blijft er
-      // op een telefoonluidspreker weinig van over) en een dun, scherper laagje
-      // waar het filter iets mee te doen heeft.
-      const layers = [['triangle', 1, 0, 1], ['sine', 2, 7, 0.55], ['sawtooth', 1, -6, 0.2]];
-      const oscs = layers.map(([type, ratio, detune, level]) => {
-        const osc = ctx.createOscillator();
-        osc.type = type;
-        osc.detune.value = detune;
-        const g = ctx.createGain();
-        g.gain.value = level;
-        osc.connect(g).connect(gain);
-        osc.start();
-        return { osc, ratio };
-      });
-      voices.push({ oscs, gain });
+    for (const name of [...PARTS, 'accent']) {
+      const g = ctx.createGain();
+      g.gain.value = name === 'accent' ? 0.5 : (scene.levels[name] || 0);
+      g.connect(master);
+      if (name !== 'bass' && name !== 'perc') g.connect(verb);
+      bus[name] = g;
     }
+
+    const n = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = n.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    noise = n;
 
     ctx.onstatechange = emit;
   }
 
-  // Eén stem tegelijk schuift naar het volgende akkoord, zodat het nooit stilvalt.
-  // Met quick klinkt het nieuwe akkoord vrijwel meteen (start en scènewissel).
-  function moveVoice(i, when, quick) {
-    const chord = scene.chords[chordIndex % scene.chords.length];
-    const freq = midi(chord[i % chord.length]);
-    const v = voices[i];
-    const fade = quick ? 0.25 : Math.min(3, scene.chordSeconds / 4);
-    v.gain.gain.cancelScheduledValues(when);
-    v.gain.gain.setTargetAtTime(0, when, fade / 4);
-    for (const { osc, ratio } of v.oscs) osc.frequency.setValueAtTime(freq * ratio, when + fade);
-    v.gain.gain.setTargetAtTime(0.15, when + fade, fade / 3);
-  }
-
-  // Een kort getokkeld toontje voor het loopje.
-  function pluck(note, when, velocity) {
+  // Eén toon: lagen van [golfvorm, veelvoud van de toonhoogte, sterkte, uitsterftijd].
+  function tone(note, when, level, layers, target) {
     const f = midi(note);
-    for (const [type, ratio, amp] of [['triangle', 1, 1], ['sine', 2, 0.3]]) {
+    for (const [type, ratio, amp, decay] of layers) {
+      if (f * ratio > 10000) continue;
       const osc = ctx.createOscillator();
       osc.type = type;
       osc.frequency.value = f * ratio;
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0, when);
-      gain.gain.linearRampToValueAtTime(amp * velocity * 0.5, when + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.0001, when + 1.1);
-      osc.connect(gain).connect(arpBus);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, when);
+      g.gain.linearRampToValueAtTime(amp * level, when + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + decay);
+      osc.connect(g).connect(target);
       osc.start(when);
-      osc.stop(when + 1.2);
+      osc.stop(when + decay + 0.05);
     }
   }
 
-  function chime(note, when, velocity, bus = chimeBus) {
-    const f = midi(note);
-    // Boventonen van een klokje: grondtoon, kleine terts, kwint, octaaf.
-    const partials = [[0.5, 0.45, 5], [1, 1, 4.2], [1.2, 0.28, 2.4], [1.5, 0.18, 1.8], [2, 0.4, 2.6], [3, 0.1, 1.2]];
-    for (const [ratio, amp, decay] of partials) {
-      if (f * ratio > 9000) continue;
-      const osc = ctx.createOscillator();
-      osc.frequency.value = f * ratio;
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0, when);
-      gain.gain.linearRampToValueAtTime(amp * velocity * 0.5, when + 0.012);
-      gain.gain.exponentialRampToValueAtTime(0.0001, when + decay);
-      osc.connect(gain).connect(bus);
-      osc.start(when);
-      osc.stop(when + decay + 0.1);
+  // Marimba-achtig: rond en kort, met een tikje bovenop.
+  const MALLET = [['sine', 1, 0.5, 0.55], ['sine', 4, 0.12, 0.12], ['triangle', 2, 0.08, 0.25]];
+  const STAB = [['triangle', 1, 0.3, 0.22], ['sine', 2, 0.08, 0.12]];
+  const BASS = [['sine', 1, 0.6, 0.4], ['triangle', 2, 0.22, 0.3]];
+  // Klokje met alleen heldere boventonen (octaaf en kwint), zonder de kleine terts
+  // die echte klokken somber maakt.
+  const BELL = [['sine', 1, 0.42, 1.6], ['sine', 2, 0.2, 1.0], ['sine', 3, 0.1, 0.6], ['sine', 4, 0.05, 0.35]];
+
+  function shaker(when, level) {
+    const src = ctx.createBufferSource();
+    src.buffer = noise;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 6500;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, when);
+    g.gain.linearRampToValueAtTime(0.16 * level, when + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.06);
+    src.connect(hp).connect(g).connect(bus.perc);
+    src.start(when, Math.random() * 0.8, 0.08);
+  }
+
+  function thump(when, level) {
+    const osc = ctx.createOscillator();
+    osc.frequency.setValueAtTime(150, when);
+    osc.frequency.exponentialRampToValueAtTime(60, when + 0.09);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, when);
+    g.gain.linearRampToValueAtTime(0.36 * level, when + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.16);
+    osc.connect(g).connect(bus.perc);
+    osc.start(when);
+    osc.stop(when + 0.2);
+  }
+
+  function playStep(i, when) {
+    const bar = Math.floor(i / STEPS) % CHORDS.length;
+    const beat = i % STEPS;
+    const base = ROOT + (scene.transpose || 0);
+    const chord = CHORDS[bar];
+
+    // bas: grondtoon op 1 en 3, een aanloopje op de laatste tel
+    if (beat === 0 || beat === 4) tone(base + chord[0] - 12, when, 1, BASS, bus.bass);
+    if (beat === 7) tone(base + chord[2] - 12, when, 0.6, BASS, bus.bass);
+
+    // akkoorden op de tussentellen: dat geeft de huppel
+    if (beat % 2 === 1) for (const n of chord) tone(base + n, when, 0.8, STAB, bus.stabs);
+
+    const note = LEAD[i % LEAD.length];
+    if (note !== null && (!scene.sparse || beat === 0 || beat === 4)) {
+      tone(base + note, when, beat % 4 === 0 ? 1 : 0.8, MALLET, bus.lead);
+      tone(base + note + 12, when, beat % 4 === 0 ? 1 : 0.75, BELL, bus.bell);
     }
+
+    if (beat === 0 || beat === 4) thump(when, 1);
+    shaker(when, beat % 2 === 1 ? 1 : 0.45);
   }
 
   function tick() {
     if (!ctx || ctx.state !== 'running') return;
     const now = ctx.currentTime;
-
-    if (now + 0.5 >= nextVoiceAt) {
-      if (voiceTurn % VOICES === 0) chordIndex++;
-      moveVoice(voiceTurn % VOICES, Math.max(now, nextVoiceAt));
-      voiceTurn++;
-      nextVoiceAt = Math.max(now, nextVoiceAt) + scene.chordSeconds / VOICES;
-    }
-
-    const a = scene.arp;
-    if (a && a.level > 0) {
-      if (nextArpAt < now) nextArpAt = now + 0.05;
-      const chord = scene.chords[chordIndex % scene.chords.length];
-      const order = [0, 1, 2, 3, 2, 1];
-      while (nextArpAt < now + 0.5) {
-        const note = chord[order[arpStep % order.length] % chord.length] + 12;
-        pluck(note, nextArpAt, arpStep % order.length === 0 ? 1 : 0.7);
-        arpStep++;
-        nextArpAt += a.step;
-      }
-    }
-
-    const c = scene.chime;
-    if (c && c.level > 0 && now + 0.5 >= nextChimeAt) {
-      let at = Math.max(now + 0.05, nextChimeAt);
-      const count = 1 + Math.floor(Math.random() * (c.phrase || 1));
-      let last = -1;
-      for (let i = 0; i < count; i++) {
-        let pick = Math.floor(Math.random() * c.notes.length);
-        if (pick === last) pick = (pick + 1) % c.notes.length;
-        last = pick;
-        chime(c.notes[pick], at, 0.6 + Math.random() * 0.4);
-        at += 0.5 + Math.random() * 0.9;
-      }
-      nextChimeAt = at + c.every * (0.6 + Math.random() * 0.8);
+    if (nextStepAt < now - 0.2) nextStepAt = now + 0.05;
+    while (nextStepAt < now + 0.3) {
+      playStep(step, nextStepAt);
+      step++;
+      nextStepAt += 60 / scene.bpm / 2;
     }
   }
 
   function applyScene(seconds) {
     if (!ctx) return;
     const now = ctx.currentTime;
-    const tc = Math.max(0.05, seconds / 3);
-    padBus.gain.setTargetAtTime(scene.pad, now, tc);
-    padFilter.frequency.setTargetAtTime(scene.cutoff, now, tc);
-    chimeBus.gain.setTargetAtTime(scene.chime ? scene.chime.level : 0, now, tc);
-    arpBus.gain.setTargetAtTime(scene.arp ? scene.arp.level : 0, now, tc);
-    if (seconds <= 3) {
-      // Snelle wissel: alle stemmen meteen naar het nieuwe akkoord, zodat je de omslag hoort.
-      chordIndex = 0;
-      for (let i = 0; i < VOICES; i++) moveVoice(i, now + 0.05 + i * 0.12, true);
-      voiceTurn = VOICES;
-      nextVoiceAt = now + scene.chordSeconds;
-    } else {
-      nextVoiceAt = Math.min(nextVoiceAt, now + 0.2);
-    }
-    if (scene.chime) nextChimeAt = Math.min(nextChimeAt, now + 2 + Math.random() * 3);
+    const tc = Math.max(0.03, seconds / 3);
+    for (const name of PARTS) bus[name].gain.setTargetAtTime(scene.levels[name] || 0, now, tc);
   }
 
   function setLevel(seconds) {
     if (!ctx) return;
-    master.gain.setTargetAtTime(muted ? 0 : 0.9, ctx.currentTime, Math.max(0.05, seconds / 3));
+    master.gain.setTargetAtTime(muted ? 0 : 0.62, ctx.currentTime, Math.max(0.03, seconds / 3));
   }
 
   // Mag alleen na een tik of toets: browsers laten geluid niet vanzelf starten.
@@ -268,31 +205,31 @@ export function createSound() {
         blip.connect(ctx.destination);
         blip.start(0);
       } catch { /* niet erg */ }
-      const now = ctx.currentTime;
-      // Meteen hoorbaar: alle stemmen tegelijk erin en een eerste klokje.
-      for (let i = 0; i < VOICES; i++) moveVoice(i, now + i * 0.08, true);
-      voiceTurn = VOICES;
-      nextVoiceAt = now + scene.chordSeconds;
-      nextChimeAt = now + 1.2;
-      setLevel(0.9);
-      timer = window.setInterval(tick, 250);
+      nextStepAt = ctx.currentTime + 0.06;
+      setLevel(0.5);
+      timer = window.setInterval(tick, 80);
     }
     if (ctx.state !== 'running') ctx.resume().then(emit, () => {});
     emit();
   }
 
-  function setScene(next, seconds = 6) {
-    if (!next || !Array.isArray(next.chords) || !next.chords.length) return;
-    scene = { ...LOBBY, ...next };
+  function setScene(next, seconds = 2) {
+    if (!next || typeof next.bpm !== 'number' || !next.levels) return;
+    scene = {
+      bpm: Math.max(60, Math.min(140, next.bpm)),
+      transpose: Math.max(-12, Math.min(12, next.transpose || 0)),
+      sparse: !!next.sparse,
+      levels: next.levels,
+    };
     applyScene(seconds);
   }
 
-  // Een kort oplopend rijtje klokjes, los van de scène.
-  function accent(notes, gap = 0.12) {
+  // Een kort oplopend rijtje klokjes, los van de scène (bij het openen).
+  function accent(notes, gap = 0.1) {
     if (!ctx || muted || ctx.state !== 'running' || !Array.isArray(notes)) return;
     let at = ctx.currentTime + 0.03;
     notes.slice(0, 12).forEach((note, i) => {
-      chime(note, at, 0.75 + 0.25 * (i / notes.length), accentBus);
+      tone(note, at, 0.7 + 0.3 * (i / notes.length), BELL, bus.accent);
       at += gap;
     });
   }
@@ -301,7 +238,7 @@ export function createSound() {
     muted = !!value;
     try { window.localStorage.setItem(KEY, muted ? '0' : '1'); } catch { /* privémodus */ }
     if (!muted) start();
-    setLevel(muted ? 0.6 : 2);
+    setLevel(muted ? 0.4 : 1);
     emit();
   }
 
