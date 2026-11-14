@@ -199,7 +199,16 @@ export function createSound() {
   function start() {
     if (!AC || muted) return;
     if (!ctx) {
+      // iPhone: zonder dit zwijgt Web Audio zodra de belschakelaar op stil staat.
+      try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* niet ondersteund */ }
       try { build(); } catch { ctx = null; return; }
+      // Een leeg geluidje binnen de aanraking zelf maakt de uitvoer op iOS vrij.
+      try {
+        const blip = ctx.createBufferSource();
+        blip.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+        blip.connect(ctx.destination);
+        blip.start(0);
+      } catch { /* niet erg */ }
       const now = ctx.currentTime;
       for (let i = 0; i < VOICES; i++) moveVoice(i, now + i * 0.7);
       voiceTurn = VOICES;

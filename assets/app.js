@@ -221,7 +221,7 @@ if (!secret) {
     sound.onchange((s) => soundButton.setAttribute('aria-pressed', String(!s.muted)));
     soundButton.addEventListener('click', () => sound.toggle());
     // Geluid mag pas na de eerste aanraking beginnen.
-    for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
+    for (const type of ['touchend', 'click', 'keydown']) {
       document.addEventListener(type, () => sound.start(), { passive: true });
     }
   }
